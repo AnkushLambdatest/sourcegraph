@@ -2,6 +2,7 @@ package runner
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/sourcegraph/sourcegraph/internal/database/migration/definition"
@@ -72,24 +73,37 @@ func (e *dirtySchemaError) Error() string {
 }
 
 type privilegedMigrationError struct {
-	schemaName string
-	definition definition.Definition
+	schemaName  string
+	definitions []definition.Definition
 }
 
-func newPrivilegedMigrationError(schemaName string, definition definition.Definition) error {
+func newPrivilegedMigrationError(schemaName string, definitions []definition.Definition) error {
 	return &privilegedMigrationError{
-		schemaName: schemaName,
-		definition: definition,
+		schemaName:  schemaName,
+		definitions: definitions,
 	}
 }
 
 func (e *privilegedMigrationError) Error() string {
+	var strIDs []string
+	for _, definition := range e.definitions {
+		strIDs = append(strIDs, strconv.Itoa(definition.ID))
+	}
+
+	migrationListText := ""
+	if len(strIDs) == 1 {
+		migrationListText = fmt.Sprintf("migration %s", strIDs[0])
+	} else {
+		strIDs[len(strIDs)-1] = "and " + strIDs[len(strIDs)-1]
+		migrationListText = fmt.Sprintf("migrations %s", strings.Join(strIDs, ", "))
+	}
+
 	return (instructionalError{
 		class: "refusing to apply a privileged migration",
 		description: fmt.Sprintf(
-			"schema %q requires database migration %d to be applied by a database user with elevated permissions\n",
+			"schema %q requires database %s to be applied by a database user with elevated permissions\n",
 			e.schemaName,
-			e.definition.ID,
+			migrationListText,
 		),
 		instructions: strings.Join([]string{
 			`The migration runner is currently being run with -unprivileged-only.`,

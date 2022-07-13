@@ -2,9 +2,12 @@ package runner
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgconn"
+	"github.com/keegancsmith/sqlf"
 
 	"github.com/sourcegraph/log"
 
@@ -180,6 +183,59 @@ func (r *Runner) applyMigrations(
 			log.Int("count", len(definitions)),
 		)
 
+		//
+		//
+
+		privilegedDefinitions := make([]definition.Definition, 0, len(definitions))
+		for _, definition := range definitions {
+			if definition.Privileged {
+				privilegedDefinitions = append(privilegedDefinitions, definition)
+			}
+		}
+
+		if len(privilegedDefinitions) > 0 {
+			// TODO - extract into function
+			text := make([]string, 0, len(privilegedDefinitions))
+			for _, definition := range privilegedDefinitions {
+				query := definition.UpQuery
+				if !up {
+					query = definition.DownQuery
+				}
+
+				text = append(text, fmt.Sprintf("-- Migration %d\n%s", definition.ID, query.Query(sqlf.PostgresBindVar)))
+			}
+			query := strings.Join(text, "\n")
+
+			// TODO - temporary?
+			fmt.Printf("\n\n```sql\nBEGIN;\n\n%s\nCOMMIT;\n```\n\n", query)
+
+			switch privilegedMode {
+			case RefusePrivilegedMigrations:
+				// TODO - print query?
+				return newPrivilegedMigrationError(operation.SchemaName, privilegedDefinitions)
+
+			case NoopPrivilegedMigrations:
+				privilegedDefinitionIDs := make([]int, 0, len(privilegedDefinitions))
+				for _, definition := range privilegedDefinitions {
+					privilegedDefinitionIDs = append(privilegedDefinitionIDs, definition.ID)
+				}
+
+				// TODO - print query?
+				r.logger.Warn(
+					"Adding migrating log for privileged migration, but not applying its changes",
+					log.String("schema", schemaContext.schema.Name),
+					log.Ints("migrationID", privilegedDefinitionIDs),
+					log.Bool("up", up),
+				)
+
+				// TODO - remove pre-merge
+				return errors.New("TEMP")
+			}
+		}
+
+		//
+		//
+
 		for _, definition := range definitions {
 			if up && definition.IsCreateIndexConcurrently {
 				// Handle execution of `CREATE INDEX CONCURRENTLY` specially
@@ -226,25 +282,12 @@ func (r *Runner) applyMigration(
 ) error {
 	up := operation.Type == MigrationOperationTypeTargetedUp
 
-	if definition.Privileged {
-		if privilegedMode == RefusePrivilegedMigrations {
-			return newPrivilegedMigrationError(operation.SchemaName, definition)
+	if definition.Privileged && privilegedMode == NoopPrivilegedMigrations {
+		if err := schemaContext.store.WithMigrationLog(ctx, definition, up, func() error { return nil }); err != nil {
+			return errors.Wrapf(err, "failed to apply migration %d", definition.ID)
 		}
 
-		if privilegedMode == NoopPrivilegedMigrations {
-			if err := schemaContext.store.WithMigrationLog(ctx, definition, up, func() error { return nil }); err != nil {
-				return errors.Wrapf(err, "failed to apply migration %d", definition.ID)
-			}
-
-			r.logger.Warn(
-				"Adding migrating log for privileged migration, but not applying its changes",
-				log.String("schema", schemaContext.schema.Name),
-				log.Int("migrationID", definition.ID),
-				log.Bool("up", up),
-			)
-
-			return nil
-		}
+		return nil
 	}
 
 	r.logger.Info(
