@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/sourcegraph/log"
+
 	"github.com/sourcegraph/sourcegraph/internal/conf/reposource"
 
 	"github.com/sourcegraph/sourcegraph/internal/errcode"
@@ -373,26 +374,9 @@ func newBitbucketProjectPermissionsResetter(db edb.EnterpriseDB, cfg *config, me
 // It is used by the worker and resetter.
 func createBitbucketProjectPermissionsStore(s basestore.ShareableStore, cfg *config) dbworkerstore.Store {
 	return dbworkerstore.New(s.Handle(), dbworkerstore.Options{
-		Name:      "explicit_permissions_bitbucket_projects_jobs_store",
-		TableName: "explicit_permissions_bitbucket_projects_jobs",
-		ColumnExpressions: []*sqlf.Query{
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.id"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.state"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.failure_message"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.queued_at"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.started_at"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.finished_at"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.process_after"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.num_resets"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.num_failures"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.last_heartbeat_at"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.execution_logs"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.worker_hostname"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.project_key"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.external_service_id"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.permissions"),
-			sqlf.Sprintf("explicit_permissions_bitbucket_projects_jobs.unrestricted"),
-		},
+		Name:              "explicit_permissions_bitbucket_projects_jobs_store",
+		TableName:         "explicit_permissions_bitbucket_projects_jobs",
+		ColumnExpressions: database.BitbucketProjectPermissionsColumnExpressions,
 		Scan: func(rows *sql.Rows, err error) (workerutil.Record, bool, error) {
 			j, ok, err := database.ScanFirstBitbucketProjectPermissionsJob(rows, err)
 			return j, ok, err
