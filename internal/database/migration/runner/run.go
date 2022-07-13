@@ -183,58 +183,10 @@ func (r *Runner) applyMigrations(
 			log.Int("count", len(definitions)),
 		)
 
-		//
-		//
-
-		privilegedDefinitions := make([]definition.Definition, 0, len(definitions))
-		for _, definition := range definitions {
-			if definition.Privileged {
-				privilegedDefinitions = append(privilegedDefinitions, definition)
-			}
+		// TODO - document call
+		if err := checkPrivilegedState(operation, schemaContext, definitions, privilegedMode); err != nil {
+			return err
 		}
-
-		if len(privilegedDefinitions) > 0 {
-			// TODO - extract into function
-			text := make([]string, 0, len(privilegedDefinitions))
-			for _, definition := range privilegedDefinitions {
-				query := definition.UpQuery
-				if !up {
-					query = definition.DownQuery
-				}
-
-				text = append(text, fmt.Sprintf("-- Migration %d\n%s", definition.ID, query.Query(sqlf.PostgresBindVar)))
-			}
-			query := strings.Join(text, "\n")
-
-			// TODO - temporary?
-			fmt.Printf("\n\n```sql\nBEGIN;\n\n%s\nCOMMIT;\n```\n\n", query)
-
-			switch privilegedMode {
-			case RefusePrivilegedMigrations:
-				// TODO - print query?
-				return newPrivilegedMigrationError(operation.SchemaName, privilegedDefinitions)
-
-			case NoopPrivilegedMigrations:
-				privilegedDefinitionIDs := make([]int, 0, len(privilegedDefinitions))
-				for _, definition := range privilegedDefinitions {
-					privilegedDefinitionIDs = append(privilegedDefinitionIDs, definition.ID)
-				}
-
-				// TODO - print query?
-				r.logger.Warn(
-					"Adding migrating log for privileged migration, but not applying its changes",
-					log.String("schema", schemaContext.schema.Name),
-					log.Ints("migrationID", privilegedDefinitionIDs),
-					log.Bool("up", up),
-				)
-
-				// TODO - remove pre-merge
-				return errors.New("TEMP")
-			}
-		}
-
-		//
-		//
 
 		for _, definition := range definitions {
 			if up && definition.IsCreateIndexConcurrently {
@@ -488,4 +440,74 @@ func filterAppliedDefinitions(
 	}
 
 	return filtered
+}
+
+// TODO - document function
+func checkPrivilegedState(
+	operation MigrationOperation,
+	schemaContext schemaContext,
+	definitions []definition.Definition,
+	privilegedMode PrivilegedMode,
+) error {
+	// Gather only the privileged definitions
+	privilegedDefinitions := make([]definition.Definition, 0, len(definitions))
+	for _, definition := range definitions {
+		if definition.Privileged {
+			privilegedDefinitions = append(privilegedDefinitions, definition)
+		}
+	}
+
+	if len(privilegedDefinitions) == 0 || privilegedMode == ApplyPrivilegedMigrations {
+		// Either we have no privileged migrations in this sequence, otherwise we play
+		// to treat them unexceptionally. Nothing to fail-fast or warn about in this
+		// circumstance.
+		return nil
+	}
+
+	// Extract migration identifiers from privileged definitions
+	privilegedDefinitionIDs := make([]int, 0, len(privilegedDefinitions))
+	for _, definition := range privilegedDefinitions {
+		privilegedDefinitionIDs = append(privilegedDefinitionIDs, definition.ID)
+	}
+
+	// TODO - document block
+	if privilegedMode == RefusePrivilegedMigrations {
+		// TODO - document block
+		// TODO - how to format this?
+		fmt.Printf("\n\n```sql\nBEGIN;\n\n%s\nCOMMIT;\n```\n\n", concatenateSQL(privilegedDefinitions, up))
+		return newPrivilegedMigrationError(operation.SchemaName, privilegedDefinitions)
+	}
+
+	if privilegedMode == NoopPrivilegedMigrations {
+		// TODO - document block
+		// TODO - how to format this?
+		fmt.Printf("\n\n```sql\nBEGIN;\n\n%s\nCOMMIT;\n```\n\n", concatenateSQL(privilegedDefinitions, up))
+
+		r.logger.Warn(
+			"Adding migrating log for privileged migration, but not applying its changes",
+			log.String("schema", schemaContext.schema.Name),
+			log.Ints("migrationID", privilegedDefinitionIDs),
+			log.Bool("up", up),
+		)
+
+		// TODO - remove pre-merge
+		return errors.New("TEMP")
+	}
+
+	return nil
+}
+
+// TODO - document function
+func concatenateSQL(definitions []definition.Definition, up bool) string {
+	migrationContents := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		query := definition.UpQuery
+		if !up {
+			query = definition.DownQuery
+		}
+
+		migrationContents = append(migrationContents, fmt.Sprintf("-- Migration %d\n%s", definition.ID, query.Query(sqlf.PostgresBindVar)))
+	}
+
+	return strings.Join(migrationContents, "\n")
 }
