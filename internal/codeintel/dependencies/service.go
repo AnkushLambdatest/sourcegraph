@@ -5,10 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/inconshreveable/log15"
 	"github.com/opentracing/opentracing-go/log"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
+
+	sglog "github.com/sourcegraph/log"
 
 	"github.com/sourcegraph/sourcegraph/internal/api"
 	"github.com/sourcegraph/sourcegraph/internal/codeintel/dependencies/internal/lockfiles"
@@ -272,6 +273,7 @@ func (s *Service) listAndPersistLockfileDependencies(ctx context.Context, repoCo
 func (s *Service) sync(ctx context.Context, repos []api.RepoName) error {
 	ctx, cancel := context.WithCancel(ctx)
 	g, ctx := errgroup.WithContext(ctx)
+	logger := sglog.Scoped("sync", "")
 	defer cancel()
 
 	for _, repo := range repos {
@@ -290,7 +292,7 @@ func (s *Service) sync(ctx context.Context, repos []api.RepoName) error {
 			defer s.syncerSemaphore.Release(1)
 
 			if err := s.syncer.Sync(ctx, repo); err != nil {
-				log15.Warn("Failed to sync dependency repo", "repo", repo, "error", err)
+				logger.Warn("Failed to sync dependency repo", sglog.String("repo", string(repo)), sglog.Error(err))
 			}
 
 			return nil
