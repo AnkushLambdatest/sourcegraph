@@ -163,10 +163,8 @@ func (r *Runner) applyMigrations(
 	privilegedMode PrivilegedMode,
 	ignoreSingleDirtyLog bool,
 ) (retry bool, _ error) {
-	var (
-		droppedLock bool
-		up          = operation.Type == MigrationOperationTypeTargetedUp
-	)
+	var droppedLock bool
+	up := operation.Type == MigrationOperationTypeTargetedUp
 
 	callback := func(schemaVersion schemaVersion, _ definitionsByState, earlyUnlock unlockFunc) error {
 		// Filter the set of definitions we still need to apply given our new view of the schema
@@ -184,7 +182,7 @@ func (r *Runner) applyMigrations(
 		)
 
 		// TODO - document call
-		if err := checkPrivilegedState(operation, schemaContext, definitions, privilegedMode); err != nil {
+		if err := r.checkPrivilegedState(operation, schemaContext, definitions, privilegedMode); err != nil {
 			return err
 		}
 
@@ -222,6 +220,63 @@ func (r *Runner) applyMigrations(
 	}
 
 	return droppedLock, nil
+}
+
+// TODO - document function
+func (r *Runner) checkPrivilegedState(
+	operation MigrationOperation,
+	schemaContext schemaContext,
+	definitions []definition.Definition,
+	privilegedMode PrivilegedMode,
+) error {
+	up := operation.Type == MigrationOperationTypeTargetedUp
+
+	// Gather only the privileged definitions
+	privilegedDefinitions := make([]definition.Definition, 0, len(definitions))
+	for _, definition := range definitions {
+		if definition.Privileged {
+			privilegedDefinitions = append(privilegedDefinitions, definition)
+		}
+	}
+
+	if len(privilegedDefinitions) == 0 || privilegedMode == ApplyPrivilegedMigrations {
+		// Either we have no privileged migrations in this sequence, otherwise we play
+		// to treat them unexceptionally. Nothing to fail-fast or warn about in this
+		// circumstance.
+		return nil
+	}
+
+	// TODO - document block
+	if privilegedMode == RefusePrivilegedMigrations {
+		// TODO - document block
+		// TODO - how to format this?
+		fmt.Printf("\n\n```sql\nBEGIN;\n\n%s\nCOMMIT;\n```\n\n", concatenateSQL(privilegedDefinitions, up))
+		return newPrivilegedMigrationError(operation.SchemaName, privilegedDefinitions)
+	}
+
+	// Extract migration identifiers from privileged definitions
+	privilegedDefinitionIDs := make([]int, 0, len(privilegedDefinitions))
+	for _, definition := range privilegedDefinitions {
+		privilegedDefinitionIDs = append(privilegedDefinitionIDs, definition.ID)
+	}
+
+	if privilegedMode == NoopPrivilegedMigrations {
+		// TODO - document block
+		// TODO - how to format this?
+		fmt.Printf("\n\n```sql\nBEGIN;\n\n%s\nCOMMIT;\n```\n\n", concatenateSQL(privilegedDefinitions, up))
+
+		r.logger.Warn(
+			"Adding migrating log for privileged migration, but not applying its changes",
+			log.String("schema", schemaContext.schema.Name),
+			log.Ints("migrationID", privilegedDefinitionIDs),
+			log.Bool("up", up),
+		)
+
+		// TODO - remove pre-merge
+		return errors.New("TEMP")
+	}
+
+	return nil
 }
 
 // applyMigration applies the given migration in the direction indicated by the given operation.
@@ -440,61 +495,6 @@ func filterAppliedDefinitions(
 	}
 
 	return filtered
-}
-
-// TODO - document function
-func checkPrivilegedState(
-	operation MigrationOperation,
-	schemaContext schemaContext,
-	definitions []definition.Definition,
-	privilegedMode PrivilegedMode,
-) error {
-	// Gather only the privileged definitions
-	privilegedDefinitions := make([]definition.Definition, 0, len(definitions))
-	for _, definition := range definitions {
-		if definition.Privileged {
-			privilegedDefinitions = append(privilegedDefinitions, definition)
-		}
-	}
-
-	if len(privilegedDefinitions) == 0 || privilegedMode == ApplyPrivilegedMigrations {
-		// Either we have no privileged migrations in this sequence, otherwise we play
-		// to treat them unexceptionally. Nothing to fail-fast or warn about in this
-		// circumstance.
-		return nil
-	}
-
-	// Extract migration identifiers from privileged definitions
-	privilegedDefinitionIDs := make([]int, 0, len(privilegedDefinitions))
-	for _, definition := range privilegedDefinitions {
-		privilegedDefinitionIDs = append(privilegedDefinitionIDs, definition.ID)
-	}
-
-	// TODO - document block
-	if privilegedMode == RefusePrivilegedMigrations {
-		// TODO - document block
-		// TODO - how to format this?
-		fmt.Printf("\n\n```sql\nBEGIN;\n\n%s\nCOMMIT;\n```\n\n", concatenateSQL(privilegedDefinitions, up))
-		return newPrivilegedMigrationError(operation.SchemaName, privilegedDefinitions)
-	}
-
-	if privilegedMode == NoopPrivilegedMigrations {
-		// TODO - document block
-		// TODO - how to format this?
-		fmt.Printf("\n\n```sql\nBEGIN;\n\n%s\nCOMMIT;\n```\n\n", concatenateSQL(privilegedDefinitions, up))
-
-		r.logger.Warn(
-			"Adding migrating log for privileged migration, but not applying its changes",
-			log.String("schema", schemaContext.schema.Name),
-			log.Ints("migrationID", privilegedDefinitionIDs),
-			log.Bool("up", up),
-		)
-
-		// TODO - remove pre-merge
-		return errors.New("TEMP")
-	}
-
-	return nil
 }
 
 // TODO - document function
