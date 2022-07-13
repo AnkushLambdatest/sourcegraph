@@ -90,20 +90,12 @@ func (e *privilegedMigrationError) Error() string {
 		strIDs = append(strIDs, strconv.Itoa(definition.ID))
 	}
 
-	migrationListText := ""
-	if len(strIDs) == 1 {
-		migrationListText = fmt.Sprintf("migration %s", strIDs[0])
-	} else {
-		strIDs[len(strIDs)-1] = "and " + strIDs[len(strIDs)-1]
-		migrationListText = fmt.Sprintf("migrations %s", strings.Join(strIDs, ", "))
-	}
-
 	return (instructionalError{
 		class: "refusing to apply a privileged migration",
 		description: fmt.Sprintf(
 			"schema %q requires database %s to be applied by a database user with elevated permissions\n",
 			e.schemaName,
-			migrationListText,
+			humanizeList("migration", "migrations", strIDs),
 		),
 		instructions: strings.Join([]string{
 			`The migration runner is currently being run with -unprivileged-only.`,
@@ -122,4 +114,18 @@ type instructionalError struct {
 
 func (e instructionalError) Error() string {
 	return fmt.Sprintf("%s: %s\n\n%s\n", e.class, e.description, e.instructions)
+}
+
+func humanizeList(singularNoun, pluralNoun string, values []string) string {
+	switch len(values) {
+	case 0:
+		return ""
+	case 1:
+		return fmt.Sprintf("%s %s", singularNoun, values[0])
+
+	default:
+		lastIndex := len(values) - 1
+		values[lastIndex] = "and " + values[lastIndex]
+		return fmt.Sprintf("%s %s", pluralNoun, strings.Join(values, ", "))
+	}
 }
