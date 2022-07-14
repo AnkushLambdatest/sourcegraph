@@ -2,6 +2,8 @@ import { FunctionComponent } from 'react'
 
 import classNames from 'classnames'
 
+import { Button } from '@sourcegraph/wildcard'
+
 import { RepositoryPreview } from './RepositoryPreview'
 import { ReposMatchingPattern } from './ReposMatchingPattern'
 
@@ -20,7 +22,6 @@ export const ReposMatchingPatternList: FunctionComponent<React.PropsWithChildren
 }) => {
     const addRepositoryPattern = (): void =>
         setRepositoryPatterns(repositoryPatterns => (repositoryPatterns || []).concat(['']))
-
     return (
         <div className="mb-2">
             {repositoryPatterns === null || repositoryPatterns.length === 0 ? (
@@ -29,13 +30,13 @@ export const ReposMatchingPatternList: FunctionComponent<React.PropsWithChildren
                     {!disabled && (
                         <>
                             To restrict the set of repositories to which this configuration applies,{' '}
-                            <span
+                            <Button
+                                variant="link"
                                 className={styles.addRepositoryPattern}
                                 onClick={addRepositoryPattern}
-                                aria-hidden="true"
                             >
                                 add a repository pattern
-                            </span>
+                            </Button>
                             .
                         </>
                     )}
@@ -68,13 +69,13 @@ export const ReposMatchingPatternList: FunctionComponent<React.PropsWithChildren
                     {!disabled && (
                         <>
                             <div className="py-3">
-                                <span
+                                <Button
+                                    variant="link"
                                     className={classNames(styles.addRepositoryPattern)}
                                     onClick={addRepositoryPattern}
-                                    aria-hidden="true"
                                 >
                                     Add a repository pattern
-                                </span>
+                                </Button>
                             </div>
                         </>
                     )}
